@@ -1,98 +1,74 @@
-# Check for MSYS2 building environment
-get_filename_component(CMAKE_MAKE_NAME ${CMAKE_MAKE_PROGRAM} NAME_WE)
-if (MINGW AND CMAKE_MAKE_NAME STREQUAL "make")
-  set(MSYS 1)
-endif()
+# Configure Windows compiler settings
+function(platform_configure_compiler)
+    set(_platform_compile_definitions ${PLATFORM_COMPILE_DEFINITIONS})
+    set(_platform_compile_options     ${PLATFORM_COMPILE_OPTIONS})
+    set(_platform_link_options        ${PLATFORM_LINK_OPTIONS})
 
-# Configure MSYS2/MinGW-w64 compiler options
-if(MINGW OR MSYS)
+    # Configure MinGW-w64 compiler options
+    if(MINGW)
+        # Increase the number of sections that an object file can contain
+        list(APPEND _platform_compile_options -Wa,-mbig-obj)
 
-  # MinGW-w64 increases the number of sections that an object file can contain
-  add_compile_options(-Wa,-mbig-obj)
+        # Link the GCC and C++ standard libraries statically
+        list(APPEND _platform_link_options -static-libgcc -static-libstdc++)
+    endif()
 
-  # MinGW-w64 use static link std library
-  add_link_options(-static-libgcc -static-libstdc++)
+    # Configure Visual Studio compiler options
+    if(MSVC)
+        # Increase the number of sections that an object file can contain
+        list(APPEND _platform_compile_options /bigobj)
 
-endif()
+        # Use UTF-8 for source and execution character sets
+        list(APPEND _platform_compile_options /utf-8)
 
-# Configure Visual Studio compiler options
-if(MSVC)
+        # Report the correct value of __cplusplus
+        list(APPEND _platform_compile_options /Zc:__cplusplus)
 
-  # Increase the number of sections that an object file can contain
-  add_compile_options(/bigobj)
+        # Configure compiler warnings
+        list(APPEND _platform_compile_options /W4 /WX /wd4100 /wd4250)
+    endif()
 
-  # Specifies both the source character set and the execution character set as UTF-8
-  # https://docs.microsoft.com/en-us/cpp/build/reference/utf-8-set-source-and-executable-character-sets-to-utf-8
-  add_compile_options(/utf-8)
+    # Configure Windows platform definitions
+    if(CYGWIN)
+        list(APPEND _platform_compile_definitions
+            WIN32
+            WIN32_LEAN_AND_MEAN
+            _WIN32_WINNT=0x0A00
+        )
+    elseif(WIN32)
+        list(APPEND _platform_compile_definitions
+            WIN32
+            WIN32_LEAN_AND_MEAN
+            _CRT_SECURE_NO_DEPRECATE
+            _SILENCE_ALL_CXX17_DEPRECATION_WARNINGS
+            _WIN32_WINNT=0x0A00
+        )
 
-  # Visual Studio should correctly reports __cplusplus
-  # https://devblogs.microsoft.com/cppblog/msvc-now-correctly-reports-__cplusplus
-  add_compile_options(/Zc:__cplusplus)
+        # Determine the Windows SDK version
+        if(CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION AND NOT MINGW)
+            string(REGEX REPLACE
+                "^([0-9]+)\\.([0-9]+)\\.([0-9]+)\\.([0-9]+)$"
+                "\\3"
+                _windows_sdk_version
+                "${CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION}"
+            )
+        else()
+            string(REGEX REPLACE
+                "^([0-9]+)\\.([0-9]+)\\.([0-9]+)$"
+                "\\3"
+                _windows_sdk_version
+                "${CMAKE_SYSTEM_VERSION}"
+            )
+        endif()
 
-  # Compiler warnings
+        if(_windows_sdk_version)
+            list(APPEND _platform_compile_definitions
+                _WIN32_SDK=${_windows_sdk_version}
+            )
+        endif()
+    endif()
 
-  # Set warnings level 4
-  set(CMAKE_C_WARNING_LEVEL 4)
-  set(CMAKE_CXX_WARNING_LEVEL 4)
-  if(CMAKE_C_FLAGS_CUSTOM MATCHES "/W[0-4]")
-    string(REGEX REPLACE "/W[0-4]" "/W4" CMAKE_C_FLAGS_CUSTOM ${CMAKE_C_FLAGS_CUSTOM})
-  else()
-    set(CMAKE_C_FLAGS_CUSTOM "${CMAKE_C_FLAGS_CUSTOM} /W4")
-  endif()
-  if(CMAKE_CXX_FLAGS_CUSTOM MATCHES "/W[0-4]")
-    string(REGEX REPLACE "/W[0-4]" "/W4" CMAKE_CXX_FLAGS_CUSTOM ${CMAKE_CXX_FLAGS_CUSTOM})
-  else()
-    set(CMAKE_CXX_FLAGS_CUSTOM "${CMAKE_CXX_FLAGS_CUSTOM} /W4")
-  endif()
-
-  # Make all warnings into errors
-  set(CMAKE_C_FLAGS_CUSTOM "${CMAKE_C_FLAGS_CUSTOM} /WX")
-  set(CMAKE_CXX_FLAGS_CUSTOM "${CMAKE_CXX_FLAGS_CUSTOM} /WX")
-
-  # Common compile flags
-  # C4100: 'identifier' : unreferenced formal parameter
-  # C4250: 'class1' : inherits 'class2::member' via dominance
-  set(COMMON_COMPILE_FLAGS "/wd4100 /wd4250")
-
-  # Pedantic compile flags
-  set(PEDANTIC_COMPILE_FLAGS ${COMMON_COMPILE_FLAGS})
-
-  # Update compile flags
-  set(CMAKE_C_FLAGS ${CMAKE_C_FLAGS_CUSTOM})
-  set(CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS_CUSTOM})
-
-endif()
-
-# Platform features
-
-if(CYGWIN)
-
-  # Base Windows platform
-  add_definitions(-DWIN32 -DWIN32_LEAN_AND_MEAN)
-
-  # Windows 10
-  add_definitions(-D_WIN32_WINNT=0x0A00)
-
-elseif(WIN32)
-
-  # Base Windows platform
-  add_definitions(-DWIN32 -DWIN32_LEAN_AND_MEAN)
-
-  # Disable CRT secure warnings
-  add_definitions(-D_CRT_SECURE_NO_DEPRECATE)
-
-  # Disable C++17 deprecation warnings
-  add_definitions(-D_SILENCE_ALL_CXX17_DEPRECATION_WARNINGS)
-
-  # Windows 10
-  add_definitions(-D_WIN32_WINNT=0x0A00)
-
-  # Windows SDK
-  if(CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION AND NOT MINGW)
-    string(REGEX REPLACE "^([0-9]+)\\.([0-9]+)\\.([0-9]+)\\.([0-9]+)$" "\\3" CMAKE_WIN32_SDK ${CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION})
-  else()
-    string(REGEX REPLACE "^([0-9]+)\\.([0-9]+)\\.([0-9]+)$" "\\3" CMAKE_WIN32_SDK ${CMAKE_SYSTEM_VERSION})
-  endif()
-  add_definitions(-D_WIN32_SDK=${CMAKE_WIN32_SDK})
-
-endif()
+    set(PLATFORM_COMPILE_DEFINITIONS "${_platform_compile_definitions}" PARENT_SCOPE)
+    set(PLATFORM_COMPILE_OPTIONS     "${_platform_compile_options}"     PARENT_SCOPE)
+    set(PLATFORM_LINK_OPTIONS        "${_platform_link_options}"        PARENT_SCOPE)
+endfunction()
